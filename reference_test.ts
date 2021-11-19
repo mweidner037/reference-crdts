@@ -285,6 +285,6 @@ if (require.main === module) {
   // randomizer(Mode.Automerge)
   // randomizer(Mode.Yjs)
   // randomizer(Mode.Sync9)
-  randomizer(Mode.DoubleRga2);
-  // randomizer(Mode.DoubleRgaEquiv);
+  // randomizer(Mode.DoubleRga2);
+  randomizer(Mode.DoubleRgaEquiv);
 }

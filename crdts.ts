@@ -807,9 +807,9 @@ const integrateDoubleRgaEquiv = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: num
   let right = newItem.originRight == null ? doc.content.length : findItem(doc, newItem.originRight, idx_hint)
   // **DoubleRgaEquiv change**
   if (doc.content[right] !== undefined &&
-      doc.content[right].originLeft !== newItem.originLeft) {
+      !idEq(doc.content[right].originLeft, newItem.originLeft)) {
     // Pretend newItem.originRight is null.
-    right = -1;
+    right = doc.content.length;
   }
   let scanning = false
 
@@ -825,11 +825,11 @@ const integrateDoubleRgaEquiv = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: num
     let oright = other.originRight == null ? doc.content.length : findItem(doc, other.originRight, idx_hint)
     // **DoubleRgaEquiv change**
     if (doc.content[oright] !== undefined &&
-        doc.content[oright].originLeft !== other.originLeft) {
+        !idEq(doc.content[oright].originLeft, other.originLeft)) {
       // Pretend other.originRight is null.
       // As an optimization, we could instead make this
       // change once when integrating other.
-      oright = -1;
+      oright = doc.content.length;
     }
 
     // The logic below summarizes to:

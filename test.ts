@@ -343,12 +343,12 @@ const runTests = (algName: string, alg: Algorithm) => { // Separate scope for na
   console.log('\n\n')
 }
 
-runTests('yjsmod', yjsMod)
-runTests('yjs', yjs)
-runTests('automerge', automerge)
-runTests('sync9', sync9)
-runTests('doubleRga1', doubleRga1)
-runTests('doubleRga2', doubleRga2)
+// runTests('yjsmod', yjsMod)
+// runTests('yjs', yjs)
+// runTests('automerge', automerge)
+// runTests('sync9', sync9)
+// runTests('doubleRga1', doubleRga1)
+// runTests('doubleRga2', doubleRga2)
 runTests('doubleRgaEquiv', doubleRgaEquiv)
 
 // console.log('hits', hits, 'misses', misses)
