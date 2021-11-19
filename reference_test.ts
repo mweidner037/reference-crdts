@@ -149,7 +149,7 @@ export class DocPair {
     }
 
     if (this.doubleRga1 != null) {
-      crdts.mergeInto(this.algorithm, this.doubleRga1, other.doubleRga1!)
+      crdts.mergeInto(crdts.doubleRga1, this.doubleRga1, other.doubleRga1!)
     }
 
     this.check()
