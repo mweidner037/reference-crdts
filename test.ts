@@ -1,6 +1,6 @@
 import assert from 'assert'
 import seed from 'seed-random'
-import {Item, Algorithm, newDoc, canInsertNow, getArray, mergeInto, localDelete, Doc, yjsMod, automerge, yjs, /*doubleRga,*/ doubleRgaEquiv, printDebugStats, sync9, Id} from './crdts'
+import {Item, Algorithm, newDoc, canInsertNow, getArray, mergeInto, localDelete, Doc, yjsMod, automerge, yjs, doubleRga1, doubleRgaEquiv, printDebugStats, sync9, Id} from './crdts'
 
 /// TESTS
 
@@ -347,7 +347,7 @@ runTests('yjsmod', yjsMod)
 runTests('yjs', yjs)
 runTests('automerge', automerge)
 runTests('sync9', sync9)
-// runTests('doubleRga', doubleRga)
+runTests('doubleRga1', doubleRga1)
 runTests('doubleRgaEquiv', doubleRgaEquiv)
 
 // console.log('hits', hits, 'misses', misses)

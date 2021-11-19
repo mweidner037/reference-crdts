@@ -55,38 +55,6 @@ type Sync9Item<T> = {
   isDeleted: boolean,
 }
 
-type DoubleRgaItem<T> = {
-  content: T;
-  id: Id;
-
-  parent: DoubleRgaItem<T>;
-  // Whether parent is to our left (i.e., we are a right child).
-  parentIsLeft: boolean;
-
-  // The entries here correspond to our left children sorted
-  // LtR. The entry for child C gives:
-  // - childSender: C.id.agent. These are what Double RGA uses
-  // to sort the children.
-  // - leftEnd: the leftmost item that is a descendent of C.
-  leftChildrenInfo: { agent: string, leftEnd: DoubleRgaItem<T> }[];
-  // Same as leftChildrenInfo, but for right children.
-  rightChildrenInfo: { agent: string, rightEnd: DoubleRgaItem<T> }[];
-
-  isDeleted: boolean;
-
-  // These are only used when this item is grabbed from an
-  // existing doc and treated as if it
-  // has been sent over the network, in mergeInto.
-  // In real life, they don't need to be stored (they're
-  // redundant with parent & parentIsLeft).
-  originLeft: Id | null;
-  originRight: Id | null;
-
-  // Unused, just here to make this a subtype of Item<T>.
-  seq: 0;
-  insertAfter: false;
-}
-
 export type Item<T> = {
   // Sync9 items must be splittable spans - which is weird in this
   // library because items only contain 1 entry. So the entry is
@@ -243,38 +211,6 @@ function localInsertSync9<T>(this: Algorithm, doc: Doc<T>, agent: string, pos: n
     seq: 0, // Only for AM.
   }, i)
 }
-
-// function localInsertDoubleRga<T>(this: Algorithm, doc: Doc<T>, agent: string, pos: number, content: T) {
-//   let i = findItemAtPos(doc, pos)
-//   // We set only one of originLeft or originRight, equal to
-//   // our parent, depending on whether it is a left or right
-//   // parent.
-//   // Specifically, our parent is our originLeft, unless
-//   // originLeft already has a right child, in which case
-//   // it is our originRight.
-//   // (Special case: if our parent is the beginning of the list
-//   // on the left, then it is null, so both origins get set to
-//   // null.)
-//   let parentIfLeft: Id | null = null;
-//   let parentIfRight: Id | null = null;
-//   if (i !== 0) {
-//     const originLeft = <DoubleRgaItem<T>> doc.content[i - 1];
-//     if (originLeft.rightChildrenInfo.length === 0) {
-//       parentIfLeft = originLeft.id;
-//     } else {
-//       parentIfRight = doc.content[i].id;
-//     }
-//   }
-//   this.integrate(doc, {
-//     content,
-//     id: [agent, (doc.version[agent] ?? -1) + 1],
-//     isDeleted: false,
-//     originLeft: parentIfLeft,
-//     originRight: parentIfRight,
-//     insertAfter: true, // Unused
-//     seq: doc.maxSeq + 1, // Unused
-//   }, i)
-// }
 
 export const localDelete = <T>(doc: Doc<T>, agent: string, pos: number): void => {
   // This is very incomplete.
@@ -594,6 +530,141 @@ const integrateSync9 = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number = -1)
   if (!newItem.isDeleted && newItem.content != null) doc.length += 1
 }
 
+type DoubleRga1Item<T> = {
+  content: T;
+  id: Id;
+
+  // The parent in the originLeft tree.
+  originLeftItem: DoubleRga1Item<T> | null;
+  // The depth in the originLeft tree (0 for null, the implicit root).
+  leftDepth: number;
+  // The parent in the originRight tree *restricted to
+  // our originLeft siblings*. This might be null even if
+  // originRight is non-null, in case originRight is not
+  // an originLeft sibling.
+  originRightItem: DoubleRga1Item<T> | null;
+  // The depth in the originRight tree (0 for null, the implicit root).
+  rightDepth: number;
+
+  isDeleted: boolean;
+
+  // These are only used when this item is grabbed from an
+  // existing doc and treated as if it
+  // has been sent over the network, in mergeInto.
+  // Otherwise the "item" versions are used.
+  originLeft: Id | null;
+  originRight: Id | null;
+
+  // Unused, just here to make this compatible with Item<T>.
+  seq: 0;
+  insertAfter: false;
+}
+
+/**
+ * Comparison function for DoubleRga1Item's.
+ *
+ * The order is a tree walk over the originLeftItem tree,
+ * with each node before its children. To sort siblings in
+ * that tree, the order is a tree walk over the originRightItem
+ * tree, with each node after its children.
+ *
+ * @return A negative number if a < b, a positive number if
+ * a > b, 0 if a === b.
+ */
+function compareDoubleRga1<T>(a: DoubleRga1Item<T>, b: DoubleRga1Item<T>): number {
+  // Find left ancestors at their min leftDepth.
+  let aAncL = a, bAncL = b;
+  while (aAncL.leftDepth > bAncL.leftDepth) {
+    aAncL = aAncL.originLeftItem!;
+  }
+  while (bAncL.leftDepth > aAncL.leftDepth) {
+    bAncL = bAncL.originLeftItem!;
+  }
+  // Walk up the originLeftItem tree until you find siblings.
+  while (aAncL.originLeftItem !== bAncL.originLeftItem) {
+    aAncL = aAncL.originLeftItem!;
+    bAncL = bAncL.originLeftItem!;
+  }
+  // Compare the (originLeftItem) siblings aAncL and bAncL.
+  if (aAncL === bAncL) {
+    // Whichever started deeper is farther right.
+    return a.leftDepth - b.leftDepth;
+  } else {
+    // aAncL and bAncL are unequal siblings in the originLeftItem
+    // tree. This means that their order is given by the originRightItem
+    // tree. So we need to repeat the comparison used for the
+    // originLeftItem tree, but using the right* variables,
+    // and starting at aAncL/bAncL instead of a/b.
+    let aAncR = aAncL, bAncR = bAncL;
+    // Find ancestors at their min rightDepth.
+    while (aAncR.rightDepth > bAncR.rightDepth) {
+      aAncR = aAncR.originRightItem!;
+    }
+    while (bAncR.rightDepth > aAncR.rightDepth) {
+      bAncR = bAncR.originRightItem!;
+    }
+    // Walk up the originRightItem tree until you find siblings.
+    while (aAncR.originRightItem !== bAncR.originRightItem) {
+      aAncR = aAncR.originRightItem!;
+      bAncR = bAncR.originRightItem!;
+    }
+    // Compare the (originRightItem) siblings aAncR and bAncR.
+    if (aAncR === bAncR) {
+      // Whichever started deeper is farther left.
+      return bAncL.rightDepth - aAncL.rightDepth;
+    } else {
+      // aAncR and bAncR are unequal siblings in the originRightItem
+      // tree. This means that their order is given by agent.
+      return aAncR.id[0] > bAncR.id[0]? 1: -1;
+    }
+  }
+}
+
+const integrateDoubleRga1 = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number = -1) => {
+  const lastSeen = doc.version[newItem.id[0]] ?? -1
+  if (newItem.id[1] !== lastSeen + 1) throw Error('Operations out of order')
+  doc.version[newItem.id[0]] = newItem.id[1]
+
+  let left = findItem(doc, newItem.originLeft, idx_hint - 1)
+  let right = newItem.originRight == null ? doc.content.length : findItem(doc, newItem.originRight, idx_hint)
+
+  const originLeftItem = <DoubleRga1Item<T> | null> (doc.content[left] ?? null);
+  // Only set originRightItem if originRight is our sibling
+  // in the originLeft tree.
+  let originRightItem: DoubleRga1Item<T> | null = null;
+  if (doc.content[right] !== undefined) {
+    const asItem = <DoubleRga1Item<T>> doc.content[right];
+    if (asItem.originLeftItem === originLeftItem) {
+      originRightItem = asItem;
+    }
+  }
+
+  const newStoredItem: DoubleRga1Item<T> = {
+    content: newItem.content!,
+    id: newItem.id,
+    originLeftItem,
+    leftDepth: (originLeftItem?.leftDepth ?? 0) + 1,
+    originRightItem,
+    rightDepth: (originRightItem?.rightDepth ?? 0) + 1,
+    isDeleted: newItem.isDeleted,
+    originLeft: newItem.originLeft,
+    originRight: newItem.originRight,
+    seq: 0,
+    insertAfter: false
+  };
+
+  // Loop over the document until we find an item greater than
+  // newStoredItem.
+  let i = left + 1;
+  for (; i < right; i++) {
+    if (compareDoubleRga1(newStoredItem, <DoubleRga1Item<T>> doc.content[i]) < 0) break;
+  }
+
+  // We've found the position. Insert here.
+  doc.content.splice(i, 0, newStoredItem)
+  if (!newStoredItem.isDeleted) doc.length += 1
+}
+
 /**
  * Slight modification of integrateYjsMod to make it
  * equivalent to Double RGA.
@@ -674,102 +745,6 @@ const integrateDoubleRgaEquiv = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: num
   if (!newItem.isDeleted) doc.length += 1
 }
 
-// const integrateDoubleRga = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number = -1) => {
-//   const {id: [agent, seq]} = newItem
-//
-//   let parent: DoubleRgaItem<T>;
-//   let parentIsLeft: boolean;
-//   if (newItem.originLeft === null) {
-//     if (newItem.originRight === null) {
-//       // parent is the start of the list, on the left.
-//       parent = TODO; // Need special start of list, so that it can store child info.
-//       parentIsLeft = true;
-//     } else {
-//       // parent is originRight, on the right.
-//       // With an extra Map, this could be done in O(1) time.
-//       parent = <DoubleRgaItem<T>> doc.content[findItem(doc, newItem.originRight, idx_hint - 1)];
-//       parentIsLeft = false;
-//     }
-//   } else {
-//     // parent is originLeft, on the left.
-//     // With an extra Map, this could be done in O(1) time.
-//     parent = <DoubleRgaItem<T>> doc.content[findItem(doc, newItem.originLeft, idx_hint - 1)];
-//     parentIsLeft = true;
-//   }
-//
-//   // The newItem that's actually stored in the doc.
-//   // (newItem is just for sending over the network, and should
-//   // not be stored/mutated because it might come from another
-//   // document.)
-//   const storedNewItem: DoubleRgaItem<T> = {
-//     content: newItem.content!,
-//     id: newItem.id,
-//     parent,
-//     parentIsLeft,
-//     leftChildrenInfo: [],
-//     rightChildrenInfo: [],
-//     isDeleted: newItem.isDeleted,
-//     originLeft: newItem.originLeft,
-//     originRight: newItem.originRight,
-//     seq: 0,
-//     insertAfter: false
-//   };
-//
-//   let adjacentItem: DoubleRgaItem<T>;
-//   let adjacentItemIsLeft: boolean;
-//
-//   // Scan through siblings to find the insert location.
-//   // This takes O(# siblings) time, which is bounded by O(c),
-//   // where c is the max number of concurrent insertions at
-//   // the "same location" (same originLeft, and either same
-//   // same originRight or both originRight's are not descendants
-//   // of originLeft).
-//   // In principle we could reduce this to O(log(c)) by doing
-//   // a binary search and using a balanced tree instead of an
-//   // array for leftChildrenInfo/rightChildrenInfo, but
-//   // since c <= 2 almost always, that would probably be slower.
-//   if (parentIsLeft) {
-//
-//   }
-//   else {
-//     // Scan to find the sibling directly to our right.
-//     let i = 0;
-//     for (; i < parent.leftChildrenInfo.length; i++) {
-//       if (parent.leftChildrenInfo[i].agent > agent) break;
-//     }
-//     if (i === parent.leftChildrenInfo.length) {
-//       // No sibling to our right; we go directly to the left
-//       // of parent.
-//       adjacentItem = parent;
-//       adjacentItemIsLeft = false;
-//       parent.leftChildrenInfo.push({ agent, leftEnd: storedNewItem });
-//     }
-//     // We go directly to the left of sibling i's leftEnd,
-//     // unless there was no sibli
-//   }
-//
-//   // Scan to find the insert location
-//   let i
-//   for (i = parent + 1; i < doc.content.length; i++) {
-//     let o = doc.content[i]
-//     if (newItem.seq > o.seq) break // Optimization to avoid findItem call along the hot path
-//     let oparent = findItem(doc, o.originLeft, idx_hint - 1)
-//
-//     // Should we insert here?
-//     if (oparent < parent
-//       || (oparent === parent
-//         && (newItem.seq === o.seq)
-//         && agent < o.id[0])
-//     ) break
-//   }
-//
-//   // We've found the position. Insert at position *i*.
-//   doc.content.splice(i, 0, newItem)
-//   doc.version[agent] = seq
-//   doc.maxSeq = Math.max(doc.maxSeq, newItem.seq)
-//   if (!newItem.isDeleted) doc.length += 1
-// }
-
 export const sync9: Algorithm = {
   localInsert: localInsertSync9,
   integrate: integrateSync9,
@@ -812,11 +787,11 @@ export const doubleRgaEquiv: Algorithm = {
   printDoc(doc) { printdoc(doc, false, true, false) },
 }
 
-// export const doubleRga: Algorithm = {
-//   localInsert,
-//   integrate: integrateDoubleRga,
-//   printDoc(doc) { printdoc(doc, false, true, false) },
-// }
+export const doubleRga1: Algorithm = {
+  localInsert,
+  integrate: integrateDoubleRga1,
+  printDoc(doc) { printdoc(doc, false, true, false) },
+}
 
 export const printDebugStats = () => {
   console.log('hits', hits, 'misses', misses)
