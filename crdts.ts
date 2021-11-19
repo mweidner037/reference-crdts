@@ -580,44 +580,42 @@ function compareDoubleRga1<T>(a: DoubleRga1Item<T>, b: DoubleRga1Item<T>): numbe
   while (bAncL.leftDepth > aAncL.leftDepth) {
     bAncL = bAncL.originLeftItem!;
   }
+  if (aAncL === bAncL) {
+    // One is an ancestor of the other.
+    // Whichever started deeper is farther right.
+    return a.leftDepth - b.leftDepth;
+  }
   // Walk up the originLeftItem tree until you find siblings.
   while (aAncL.originLeftItem !== bAncL.originLeftItem) {
     aAncL = aAncL.originLeftItem!;
     bAncL = bAncL.originLeftItem!;
   }
-  // Compare the (originLeftItem) siblings aAncL and bAncL.
-  if (aAncL === bAncL) {
-    // Whichever started deeper is farther right.
-    return a.leftDepth - b.leftDepth;
-  } else {
-    // aAncL and bAncL are unequal siblings in the originLeftItem
-    // tree. This means that their order is given by the originRightItem
-    // tree. So we need to repeat the comparison used for the
-    // originLeftItem tree, but using the right* variables,
-    // and starting at aAncL/bAncL instead of a/b.
-    let aAncR = aAncL, bAncR = bAncL;
-    // Find ancestors at their min rightDepth.
-    while (aAncR.rightDepth > bAncR.rightDepth) {
-      aAncR = aAncR.originRightItem!;
-    }
-    while (bAncR.rightDepth > aAncR.rightDepth) {
-      bAncR = bAncR.originRightItem!;
-    }
-    // Walk up the originRightItem tree until you find siblings.
-    while (aAncR.originRightItem !== bAncR.originRightItem) {
-      aAncR = aAncR.originRightItem!;
-      bAncR = bAncR.originRightItem!;
-    }
-    // Compare the (originRightItem) siblings aAncR and bAncR.
-    if (aAncR === bAncR) {
-      // Whichever started deeper is farther left.
-      return bAncL.rightDepth - aAncL.rightDepth;
-    } else {
-      // aAncR and bAncR are unequal siblings in the originRightItem
-      // tree. This means that their order is given by agent.
-      return aAncR.id[0] > bAncR.id[0]? 1: -1;
-    }
+  // Compare the unequal (originLeftItem) siblings aAncL and bAncL.
+  // Their order is given by the originRightItem
+  // tree. So we need to repeat the comparison used for the
+  // originLeftItem tree, but using the right* variables,
+  // and starting at aAncL/bAncL instead of a/b.
+  let aAncR = aAncL, bAncR = bAncL;
+  // Find ancestors at their min rightDepth.
+  while (aAncR.rightDepth > bAncR.rightDepth) {
+    aAncR = aAncR.originRightItem!;
   }
+  while (bAncR.rightDepth > aAncR.rightDepth) {
+    bAncR = bAncR.originRightItem!;
+  }
+  if (aAncR === bAncR) {
+    // One is an ancestor of the other.
+    // Whichever started deeper is farther left.
+    return bAncL.rightDepth - aAncL.rightDepth;
+  }
+  // Walk up the originRightItem tree until you find siblings.
+  while (aAncR.originRightItem !== bAncR.originRightItem) {
+    aAncR = aAncR.originRightItem!;
+    bAncR = bAncR.originRightItem!;
+  }
+  // Compare the unequal (originRightItem) siblings aAncR and bAncR.
+  // Their order is given by agent.
+  return aAncR.id[0] > bAncR.id[0]? 1: -1;
 }
 
 const integrateDoubleRga1 = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number = -1) => {
@@ -658,6 +656,130 @@ const integrateDoubleRga1 = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number 
   let i = left + 1;
   for (; i < right; i++) {
     if (compareDoubleRga1(newStoredItem, <DoubleRga1Item<T>> doc.content[i]) < 0) break;
+  }
+
+  // We've found the position. Insert here.
+  doc.content.splice(i, 0, newStoredItem)
+  if (!newStoredItem.isDeleted) doc.length += 1
+}
+
+type DoubleRga2Item<T> = {
+  content: T;
+  id: Id;
+
+  // The parent in the tree. Null if the parent is the root
+  // (start of the list).
+  parent: DoubleRga2Item<T> | null;
+  parentIsLeft: boolean;
+  // The depth in the tree (0 for null, the implicit root).
+  depth: number;
+
+  isDeleted: boolean;
+
+  // These are only used when this item is grabbed from an
+  // existing doc and treated as if it
+  // has been sent over the network, in mergeInto.
+  // Otherwise the "item" versions are used.
+  originLeft: Id | null;
+  originRight: Id | null;
+
+  // Unused, just here to make this compatible with Item<T>.
+  seq: 0;
+  insertAfter: false;
+}
+
+/**
+ * Comparison function for DoubleRga1Item's.
+ *
+ * The order is a tree walk over the originLeftItem tree,
+ * with each node before its children. To sort siblings in
+ * that tree, the order is a tree walk over the originRightItem
+ * tree, with each node after its children.
+ *
+ * @return A negative number if a < b, a positive number if
+ * a > b, 0 if a === b.
+ */
+function compareDoubleRga2<T>(a: DoubleRga2Item<T>, b: DoubleRga2Item<T>): number {
+  // Find ancestors at their min depth.
+  let aAnc = a, bAnc = b;
+  let lastMoveIsLeft = false;
+  while (aAnc.depth > bAnc.depth) {
+    lastMoveIsLeft = aAnc.parentIsLeft;
+    aAnc = aAnc.parent!;
+  }
+  while (bAnc.depth > aAnc.depth) {
+    lastMoveIsLeft = bAnc.parentIsLeft;
+    bAnc = bAnc.parent!;
+  }
+  if (aAnc === bAnc) {
+    // One is an ancestor of the other.
+    // Whichever started shallower is in the direction of
+    // the last move.
+    return (a.depth - b.depth) * (lastMoveIsLeft? 1: -1);
+  }
+  // Walk up the tree until you find siblings.
+  while (aAnc.parent !== bAnc.parent) {
+    aAnc = aAnc.parent!;
+    bAnc = bAnc.parent!;
+  }
+  // Compare the unequal siblings aAnc and bAnc.
+  // Their order is given by: siblings with right parent
+  // are less then siblings with left parent; siblings on
+  // same side are sorted by agent.
+  if (aAnc.parentIsLeft && !bAnc.parentIsLeft) return 1;
+  else if (!aAnc.parentIsLeft && bAnc.parentIsLeft) return -1;
+  else {
+  return aAnc.id[0] > bAnc.id[0]? 1: -1;
+  }
+}
+
+const integrateDoubleRga2 = <T>(doc: Doc<T>, newItem: Item<T>, idx_hint: number = -1) => {
+  const lastSeen = doc.version[newItem.id[0]] ?? -1
+  if (newItem.id[1] !== lastSeen + 1) throw Error('Operations out of order')
+  doc.version[newItem.id[0]] = newItem.id[1]
+
+  let left = findItem(doc, newItem.originLeft, idx_hint - 1)
+  let right = newItem.originRight == null ? doc.content.length : findItem(doc, newItem.originRight, idx_hint)
+
+  const originLeftItem = <DoubleRga2Item<T> | undefined> doc.content[findItem(doc, newItem.originLeft, idx_hint - 1)];
+  const originRightItem = <DoubleRga2Item<T> | undefined> doc.content[findItem(doc, newItem.originRight, idx_hint + 1)];
+
+  let parent: DoubleRga2Item<T> | null;
+  let parentIsLeft: boolean;
+  // Use originLeft as our (left) parent, unless originRight
+  // is already a descendant of originRight, in which case we
+  // use that as our (right) parent.
+  // (As an optimization, this choice should be made on the sender,
+  // then the sender sends parent & parentIsLeft instead of
+  // originLeft & originRight.)
+  if (originRightItem !== undefined && idEq(originRightItem.originLeft, newItem.originLeft)) {
+    // originRight is a descendant of originLeft.
+    parentIsLeft = false;
+    parent = originRightItem;
+  } else {
+    // Default case: use originLeft as the parent.
+    parentIsLeft = true;
+    parent = originLeftItem ?? null;
+  }
+
+  const newStoredItem: DoubleRga2Item<T> = {
+    content: newItem.content!,
+    id: newItem.id,
+    parent,
+    parentIsLeft,
+    depth: (parent?.depth ?? 0) + 1,
+    isDeleted: newItem.isDeleted,
+    originLeft: newItem.originLeft,
+    originRight: newItem.originRight,
+    seq: 0,
+    insertAfter: false
+  };
+
+  // Loop over the document until we find an item greater than
+  // newStoredItem.
+  let i = left + 1;
+  for (; i < right; i++) {
+    if (compareDoubleRga2(newStoredItem, <DoubleRga2Item<T>> doc.content[i]) < 0) break;
   }
 
   // We've found the position. Insert here.
@@ -790,6 +912,12 @@ export const doubleRgaEquiv: Algorithm = {
 export const doubleRga1: Algorithm = {
   localInsert,
   integrate: integrateDoubleRga1,
+  printDoc(doc) { printdoc(doc, false, true, false) },
+}
+
+export const doubleRga2: Algorithm = {
+  localInsert,
+  integrate: integrateDoubleRga2,
   printDoc(doc) { printdoc(doc, false, true, false) },
 }
 
