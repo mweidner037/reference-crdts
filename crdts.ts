@@ -689,12 +689,13 @@ type DoubleRga2Item<T> = {
 }
 
 /**
- * Comparison function for DoubleRga1Item's.
+ * Comparison function for DoubleRga2Item's.
  *
- * The order is a tree walk over the originLeftItem tree,
- * with each node before its children. To sort siblings in
- * that tree, the order is a tree walk over the originRightItem
- * tree, with each node after its children.
+ * The order is a tree walk, with order:
+ * - a node's left children (children with parentIsLeft = false)
+ * - the node
+ * - the node's right children.
+ * Siblings on the same sort are sorted by agent.
  *
  * @return A negative number if a < b, a positive number if
  * a > b, 0 if a === b.

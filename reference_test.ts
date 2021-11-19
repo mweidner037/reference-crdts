@@ -17,6 +17,8 @@ export enum Mode {
   Automerge,
   Yjs,
   Sync9,
+  DoubleRga2,
+  DoubleRgaEquiv,
 }
 
 let log = ''
@@ -31,6 +33,7 @@ export class DocPair {
   am?: automerge.FreezeObject<DocType>
   ydoc?: Y.Doc
   sync9?: any
+  doubleRga1?: crdts.Doc<number>
 
   constructor(id: number, mode: Mode) {
     this.id = id
@@ -38,7 +41,9 @@ export class DocPair {
 
     this.algorithm = mode === Mode.Automerge ? crdts.automerge
       : mode === Mode.Yjs ? crdts.yjs
-      : crdts.sync9
+      : mode === Mode.Sync9 ? crdts.sync9
+      : mode === Mode.DoubleRga2? crdts.doubleRga2
+      : crdts.doubleRgaEquiv;
 
     this.sephdoc = crdts.newDoc()
 
@@ -62,6 +67,10 @@ export class DocPair {
         this.sync9 = sync9.make(this.idStr)
         break
       }
+      case Mode.DoubleRga2: case Mode.DoubleRgaEquiv: {
+        this.doubleRga1 = crdts.newDoc();
+        break;
+      }
     }
   }
 
@@ -82,6 +91,10 @@ export class DocPair {
     if (this.sync9 != null) {
       sync9.insert(this.sync9, pos, content)
     }
+
+    if (this.doubleRga1 != null) {
+      crdts.doubleRga1.localInsert(this.doubleRga1, this.idStr, pos, content)
+    }
   }
 
   del(pos: number) {
@@ -99,6 +112,10 @@ export class DocPair {
     }
 
     if (this.sync9) throw Error('nyi')
+
+    if (this.doubleRga1 != null) {
+      crdts.localDelete(this.doubleRga1!, this.idStr, pos)
+    }
   }
 
   mergeFrom(other: DocPair) {
@@ -129,6 +146,10 @@ export class DocPair {
 
     if (this.sync9 != null) {
       this.sync9 = sync9.merge(this.sync9, other.sync9)
+    }
+
+    if (this.doubleRga1 != null) {
+      crdts.mergeInto(this.algorithm, this.doubleRga1, other.doubleRga1!)
     }
 
     this.check()
@@ -164,6 +185,10 @@ export class DocPair {
         this.algorithm.printDoc(this.sephdoc)
         throw e
       }
+    }
+
+    if (this.doubleRga1 != null) {
+      assert.deepStrictEqual(myContent, crdts.getArray(this.doubleRga1));
     }
 
     // console.log('result', this.ydoc?.getArray().toArray())
@@ -259,5 +284,7 @@ const randomizer = (mode: Mode) => {
 if (require.main === module) {
   // randomizer(Mode.Automerge)
   // randomizer(Mode.Yjs)
-  randomizer(Mode.Sync9)
+  // randomizer(Mode.Sync9)
+  randomizer(Mode.DoubleRga2);
+  // randomizer(Mode.DoubleRgaEquiv);
 }
